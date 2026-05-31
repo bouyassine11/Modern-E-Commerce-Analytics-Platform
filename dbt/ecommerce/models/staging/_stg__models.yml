@@ -172,6 +172,13 @@ models:
 
       - name: payment_method
         description: Payment method used.
+        tests:
+          - accepted_values:
+              values:
+                - credit_card
+                - paypal
+                - stripe
+                - bank_transfer
 
       - name: created_at
         description: DW load timestamp.
@@ -250,6 +257,13 @@ models:
 
       - name: payment_method
         description: Payment gateway or method.
+        tests:
+          - accepted_values:
+              values:
+                - credit_card
+                - paypal
+                - stripe
+                - bank_transfer
 
       - name: status
         description: Payment status.

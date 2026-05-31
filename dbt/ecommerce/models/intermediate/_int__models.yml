@@ -70,11 +70,25 @@ models:
         description: >
           Payment method used. Falls back to the order-level value from stg_orders
           when no payment transaction exists.
+        tests:
+          - accepted_values:
+              values:
+                - credit_card
+                - paypal
+                - stripe
+                - bank_transfer
 
       - name: payment_status
         description: >
           Rolled-up payment status per order. Priority: completed > refunded >
           pending > failed. NULL when no payment transaction is linked.
+        tests:
+          - accepted_values:
+              values:
+                - completed
+                - refunded
+                - pending
+                - failed
 
       - name: order_date
         description: Timestamp of order placement.
