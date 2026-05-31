@@ -1,0 +1,68 @@
+data:
+  output_dir: "data/raw"
+  file_format: "csv"
+
+generation:
+  seed: 42
+  customers: 10000
+  products: 500
+  orders: 100000
+  order_items: 300000
+  payments: 100000
+
+  date_range:
+    start: "2024-06-01"
+    end: "2026-05-31"
+
+  distribution:
+    items_per_order:
+      "1": 0.15
+      "2": 0.25
+      "3": 0.20
+      "4": 0.25
+      "5": 0.15
+    quantity_per_item:
+      min: 1
+      max: 3
+    order_status:
+      delivered: 0.70
+      shipped: 0.12
+      processing: 0.06
+      cancelled: 0.07
+      refunded: 0.05
+    payment_status:
+      paid: 0.88
+      failed: 0.05
+      pending: 0.05
+      refunded: 0.02
+    payment_methods:
+      credit_card: 0.45
+      paypal: 0.25
+      stripe: 0.20
+      bank_transfer: 0.10
+
+  categories:
+    Electronics:
+      count: 100
+      price_range: [9.99, 1999.99]
+    Clothing:
+      count: 100
+      price_range: [9.99, 199.99]
+    Home & Garden:
+      count: 70
+      price_range: [4.99, 499.99]
+    Books:
+      count: 60
+      price_range: [5.99, 79.99]
+    Sports & Outdoors:
+      count: 60
+      price_range: [9.99, 599.99]
+    Beauty & Personal Care:
+      count: 50
+      price_range: [3.99, 149.99]
+    Toys & Games:
+      count: 40
+      price_range: [4.99, 299.99]
+    Food & Beverages:
+      count: 20
+      price_range: [1.99, 89.99]

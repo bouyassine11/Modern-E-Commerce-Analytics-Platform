@@ -1,0 +1,21 @@
+[2026-05-31 17:49:57] INFO     etl.generate | Starting e-commerce data generation
+[2026-05-31 17:49:57] INFO     etl.generators.product_generator | Generating products...
+[2026-05-31 17:49:57] INFO     etl.generators.product_generator | Generated 500 products across 8 categories
+[2026-05-31 17:49:57] INFO     etl.generators.customer_generator | Generating customers...
+[2026-05-31 17:50:04] INFO     etl.generators.customer_generator | Generated 10000 customers
+[2026-05-31 17:50:04] INFO     etl.generators.order_generator | Generating orders...
+[2026-05-31 17:51:28] INFO     etl.generators.order_generator | Generated 100000 orders
+[2026-05-31 17:51:28] INFO     etl.generators.order_item_generator | Generating order items...
+[2026-05-31 17:51:42] INFO     etl.generators.order_item_generator | Generated 300046 order items across 100000 orders
+[2026-05-31 17:51:42] INFO     etl.generators.payment_generator | Generating payments...
+[2026-05-31 17:51:43] INFO     etl.generators.payment_generator | Generated 100000 payments
+[2026-05-31 17:51:43] INFO     etl.generate | ==================================================
+[2026-05-31 17:51:43] INFO     etl.generate | Generation Summary
+[2026-05-31 17:51:43] INFO     etl.generate | ==================================================
+[2026-05-31 17:51:43] INFO     etl.generate |   Products:        500
+[2026-05-31 17:51:43] INFO     etl.generate |   Customers:     10000
+[2026-05-31 17:51:43] INFO     etl.generate |   Orders:       100000
+[2026-05-31 17:51:43] INFO     etl.generate |   Order Items:  300046
+[2026-05-31 17:51:43] INFO     etl.generate |   Payments:     100000
+[2026-05-31 17:51:43] INFO     etl.generate | ==================================================
+[2026-05-31 17:51:43] INFO     etl.generate | Dry run complete — no files written

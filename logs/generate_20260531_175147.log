@@ -1,0 +1,32 @@
+[2026-05-31 17:51:47] INFO     etl.generate | Starting e-commerce data generation
+[2026-05-31 17:51:47] INFO     etl.generators.product_generator | Generating products...
+[2026-05-31 17:51:47] INFO     etl.generators.product_generator | Generated 500 products across 8 categories
+[2026-05-31 17:51:47] INFO     etl.generators.customer_generator | Generating customers...
+[2026-05-31 17:51:54] INFO     etl.generators.customer_generator | Generated 10000 customers
+[2026-05-31 17:51:54] INFO     etl.generators.order_generator | Generating orders...
+[2026-05-31 17:53:10] INFO     etl.generators.order_generator | Generated 100000 orders
+[2026-05-31 17:53:10] INFO     etl.generators.order_item_generator | Generating order items...
+[2026-05-31 17:53:22] INFO     etl.generators.order_item_generator | Generated 300046 order items across 100000 orders
+[2026-05-31 17:53:22] INFO     etl.generators.payment_generator | Generating payments...
+[2026-05-31 17:53:23] INFO     etl.generators.payment_generator | Generated 100000 payments
+[2026-05-31 17:53:23] INFO     etl.generate | ==================================================
+[2026-05-31 17:53:23] INFO     etl.generate | Generation Summary
+[2026-05-31 17:53:23] INFO     etl.generate | ==================================================
+[2026-05-31 17:53:23] INFO     etl.generate |   Products:        500
+[2026-05-31 17:53:23] INFO     etl.generate |   Customers:     10000
+[2026-05-31 17:53:23] INFO     etl.generate |   Orders:       100000
+[2026-05-31 17:53:23] INFO     etl.generate |   Order Items:  300046
+[2026-05-31 17:53:23] INFO     etl.generate |   Payments:     100000
+[2026-05-31 17:53:23] INFO     etl.generate | ==================================================
+[2026-05-31 17:53:23] INFO     etl.utils | Wrote 500 rows → data/raw/products.csv (76.6 KB)
+[2026-05-31 17:53:23] INFO     etl.utils | Wrote 10000 rows → data/raw/customers.csv (1324.1 KB)
+[2026-05-31 17:53:24] INFO     etl.utils | Wrote 100000 rows → data/raw/orders.csv (7864.4 KB)
+[2026-05-31 17:53:25] INFO     etl.utils | Wrote 300046 rows → data/raw/order_items.csv (9635.0 KB)
+[2026-05-31 17:53:26] INFO     etl.utils | Wrote 100000 rows → data/raw/payments.csv (7382.1 KB)
+[2026-05-31 17:53:26] INFO     etl.generate | All files written to: data/raw
+[2026-05-31 17:53:26] INFO     etl.generate |   ✔ data/raw/products.csv
+[2026-05-31 17:53:26] INFO     etl.generate |   ✔ data/raw/customers.csv
+[2026-05-31 17:53:26] INFO     etl.generate |   ✔ data/raw/orders.csv
+[2026-05-31 17:53:26] INFO     etl.generate |   ✔ data/raw/order_items.csv
+[2026-05-31 17:53:26] INFO     etl.generate |   ✔ data/raw/payments.csv
+[2026-05-31 17:53:26] INFO     etl.generate | Data generation complete
