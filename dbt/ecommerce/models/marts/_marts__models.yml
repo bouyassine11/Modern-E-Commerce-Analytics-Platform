@@ -342,9 +342,8 @@ models:
 
   - name: rpt_daily_revenue
     description: >
-      Daily revenue summary — one row per calendar day. Pre-computed for
-      Metabase dashboards to avoid repeated aggregation on fact_sales.
-      Includes revenue, order count, item count, and average order value.
+      Daily revenue summary — one row per calendar day with revenue, orders,
+      items, customers, AOV, running totals, and weekend flag.
 
     columns:
       - name: report_date
@@ -353,42 +352,97 @@ models:
           - unique
           - not_null
 
-      - name: total_revenue
-        description: Gross revenue for the day.
+      - name: day_of_week
+        description: Day name (e.g. Monday).
+
+      - name: is_weekend
+        description: True if Saturday or Sunday.
 
       - name: total_orders
-        description: Number of distinct orders placed.
+        description: Distinct orders placed.
 
       - name: total_items
-        description: Total units sold.
+        description: Units sold (line items).
+
+      - name: total_revenue
+        description: Gross revenue (paid + pending).
+
+      - name: total_customers
+        description: Distinct customers with orders.
 
       - name: average_order_value
-        description: Revenue divided by order count.
-
-      - name: revenue_percent_of_total
-        description: Day's revenue as a percentage of overall total.
+        description: total_revenue / total_orders.
 
       - name: running_total_revenue
-        description: Cumulative revenue up to and including this date.
+        description: Cumulative revenue up to this date.
 
-  - name: rpt_customer_ltv
+      - name: running_total_orders
+        description: Cumulative orders up to this date.
+
+  - name: rpt_monthly_revenue
     description: >
-      Customer lifetime value report — one row per customer. Used for cohort
-      analysis, VIP segmentation, and churn tracking. Segments customers by
-      recency, frequency, and monetary (RFM) value.
+      Monthly revenue summary — one row per month with MoM growth rate.
+      Used for executive dashboards and trend analysis.
+
+    columns:
+      - name: year
+        description: Calendar year.
+        tests:
+          - not_null
+
+      - name: month
+        description: Month number (1-12).
+        tests:
+          - not_null
+
+      - name: month_name
+        description: Month name (e.g. January).
+
+      - name: quarter
+        description: Calendar quarter.
+
+      - name: total_orders
+        description: Distinct orders placed.
+
+      - name: total_items
+        description: Units sold.
+
+      - name: total_revenue
+        description: Gross revenue.
+
+      - name: total_customers
+        description: Distinct customers.
+
+      - name: average_order_value
+        description: total_revenue / total_orders.
+
+      - name: prev_month_revenue
+        description: Revenue from prior month (for growth calculation).
+
+      - name: revenue_growth_pct
+        description: Month-over-month revenue growth percentage.
+
+  - name: rpt_customer_lifetime_value
+    description: >
+      Customer lifetime value — one row per customer with RFM segmentation.
+      Assigns segments (Champions, At Risk, Lost, etc.) based on recency,
+      frequency, and monetary quintile scores.
 
     columns:
       - name: customer_key
-        description: Foreign key to dim_customer.
+        description: Surrogate key to dim_customer.
         tests:
           - unique
           - not_null
 
       - name: customer_id
-        description: Business key for traceability.
+        description: Business key.
 
       - name: full_name
-        description: Customer name.
+        description: Customer display name.
+
+      - name: country
+        description: Customer country.
 
       - name: signup_date
         description: Account creation date.
@@ -400,75 +454,49 @@ models:
         description: Date of most recent purchase.
 
       - name: total_orders
-        description: Lifetime order count.
+        description: Lifetime distinct order count.
+
+      - name: total_items
+        description: Lifetime units purchased.
 
       - name: total_revenue
-        description: Lifetime revenue.
+        description: Lifetime gross revenue.
 
       - name: avg_order_value
-        description: Average revenue per order.
-
-      - name: customer_lifetime_days
-        description: Days between first and last order.
-
-      - name: days_since_last_order
-        description: Recency — days since most recent purchase.
-
-      - name: customer_segment
-        description: RFM segment label (e.g. 'Champions', 'At Risk', 'Lost').
+        description: total_revenue / total_orders.
 
       - name: customer_tenure_days
         description: Days since signup.
 
-      - name: country
-        description: Customer country.
+      - name: customer_lifetime_days
+        description: Days between first and last order (0 if single order).
 
-  - name: rpt_order_funnel
+      - name: days_since_last_order
+        description: Recency in days.
+
+      - name: recency_score
+        description: Quintile (1-5) for recency (5 = most recent).
+
+      - name: frequency_score
+        description: Quintile (1-5) for frequency (5 = most frequent).
+
+      - name: revenue_score
+        description: Quintile (1-5) for monetary value (5 = highest).
+
+      - name: rfm_score
+        description: Average of R, F, M scores.
+
+      - name: customer_segment
+        description: RFM segment label (Champions, Loyal, At Risk, Lost, etc.).
+
+  - name: rpt_top_products
     description: >
-      Order funnel analysis — tracks conversion from order placement through
-      payment completion. Each row represents a date with counts at each
-      funnel stage. Enables dropout analysis and payment-success-rate tracking.
-
-    columns:
-      - name: report_date
-        description: Calendar date.
-        tests:
-          - unique
-          - not_null
-
-      - name: total_orders
-        description: Orders placed on this date.
-
-      - name: delivered_orders
-        description: Orders that reached delivered status.
-
-      - name: cancelled_orders
-        description: Orders that were cancelled.
-
-      - name: refunded_orders
-        description: Orders that were refunded.
-
-      - name: paid_orders
-        description: Orders with at least one completed payment.
-
-      - name: failed_payment_orders
-        description: Orders with all payments failed.
-
-      - name: pending_payment_orders
-        description: Orders with payments still pending.
-
-      - name: payment_success_rate
-        description: Paid orders divided by total orders (excluding cancelled).
-
-  - name: rpt_product_performance
-    description: >
-      Product performance report — one row per product with sales metrics,
-      rankings, and category percentiles. Used for inventory planning,
-      merchandising decisions, and category analysis.
+      Product performance ranking — one row per product with sales, price
+      ratios, ordinal ranks, and category revenue share.
 
     columns:
       - name: product_key
-        description: Foreign key to dim_product.
+        description: Surrogate key to dim_product.
         tests:
           - unique
           - not_null
@@ -482,29 +510,205 @@ models:
       - name: category
         description: Product category.
 
+      - name: current_price
+        description: Latest listed price.
+
+      - name: avg_unit_price
+        description: Average selling price.
+
+      - name: price_vs_avg_ratio
+        description: current_price / avg_unit_price.
+
       - name: total_units_sold
         description: Lifetime units sold.
 
       - name: gross_revenue
         description: Lifetime gross revenue.
 
-      - name: avg_unit_price
-        description: Average selling price.
+      - name: order_count
+        description: Distinct orders containing this product.
 
-      - name: current_price
-        description: Latest listed price from dim_product.
-
-      - name: price_vs_avg_ratio
-        description: Current price divided by average selling price.
-
-      - name: revenue_rank
-        description: Revenue rank within its category (1 = highest).
-
-      - name: category_revenue_pct
-        description: Product revenue as a percentage of its category total.
+      - name: customer_count
+        description: Distinct customers who purchased.
 
       - name: last_order_date
-        description: Date of most recent sale.
+        description: Most recent sale date.
 
       - name: days_since_last_sale
-        description: Days since the most recent sale.
+        description: Recency of last sale.
+
+      - name: revenue_rank
+        description: Overall revenue rank (1 = top).
+
+      - name: category_rank
+        description: Revenue rank within category.
+
+      - name: category_revenue_pct
+        description: Product revenue as share of its category.
+
+  - name: rpt_top_categories
+    description: >
+      Category performance — one row per product category with revenue,
+      order count, active products, and revenue share vs total.
+
+    columns:
+      - name: category
+        description: Product category name.
+        tests:
+          - unique
+          - not_null
+
+      - name: total_orders
+        description: Distinct orders in category.
+
+      - name: total_customers
+        description: Distinct customers who purchased.
+
+      - name: total_units_sold
+        description: Total units sold.
+
+      - name: gross_revenue
+        description: Total category revenue.
+
+      - name: revenue_per_order
+        description: Average revenue per order.
+
+      - name: avg_unit_price
+        description: Average selling price across all items.
+
+      - name: active_products
+        description: Distinct products with sales.
+
+      - name: first_sale_date
+        description: Earliest sale in category.
+
+      - name: last_sale_date
+        description: Most recent sale in category.
+
+      - name: revenue_rank
+        description: Rank by revenue (1 = top category).
+
+      - name: total_revenue_all
+        description: Grand total revenue across all categories.
+
+      - name: revenue_share_pct
+        description: Category revenue as percentage of grand total.
+
+  - name: rpt_country_revenue
+    description: >
+      Revenue by customer country — one row per country with order counts,
+      customer counts, revenue per customer, and market share.
+
+    columns:
+      - name: country
+        description: Customer country.
+        tests:
+          - unique
+          - not_null
+
+      - name: total_orders
+        description: Distinct orders.
+
+      - name: total_customers
+        description: Distinct customers.
+
+      - name: total_items
+        description: Units sold.
+
+      - name: total_revenue
+        description: Gross revenue.
+
+      - name: revenue_per_order
+        description: Average revenue per order.
+
+      - name: revenue_per_customer
+        description: Average revenue per customer (ARPU).
+
+      - name: first_order_date
+        description: Earliest order in country.
+
+      - name: last_order_date
+        description: Most recent order in country.
+
+      - name: revenue_rank
+        description: Rank by revenue.
+
+      - name: grand_total_revenue
+        description: Revenue across all countries.
+
+      - name: revenue_share_pct
+        description: Country revenue as percentage of total.
+
+  - name: rpt_repeat_customers
+    description: >
+      Repeat purchase analysis — cohort-based and monthly new vs. repeat
+      customer counts. Tracks repeat purchase rate by first-order cohort month
+      and monthly new/repeat customer composition.
+
+    columns:
+      - name: cohort_month
+        description: Month of first purchase (cohort).
+
+      - name: cohort_size
+        description: Customers who made first purchase this month.
+
+      - name: cohort_repeat_customers
+        description: Customers with 2+ orders in the cohort.
+
+      - name: repeat_purchase_rate_pct
+        description: Repeat customers as percentage of cohort size.
+
+      - name: report_month
+        description: Calendar month for the new vs. repeat view.
+
+      - name: monthly_new_customers
+        description: Customers placing their first order this month.
+
+      - name: monthly_repeat_customers
+        description: Customers placing 2nd+ order this month.
+
+      - name: monthly_repeat_rate_pct
+        description: Repeat customers as percentage of total ordering this month.
+
+  - name: rpt_payment_analysis
+    description: >
+      Payment status breakdown — one row per payment status with revenue,
+      order share, and customer metrics. Enables payment success rate
+      monitoring and failed payment financial impact analysis.
+
+    columns:
+      - name: payment_status
+        description: Payment status (paid, pending, failed, refunded).
+        tests:
+          - unique
+          - not_null
+
+      - name: total_orders
+        description: Distinct orders with this status.
+
+      - name: total_items
+        description: Line items with this status.
+
+      - name: total_revenue
+        description: Gross revenue (negative for refunds).
+
+      - name: total_customers
+        description: Distinct customers affected.
+
+      - name: revenue_per_order
+        description: Average revenue per order.
+
+      - name: revenue_per_customer
+        description: Average revenue per customer.
+
+      - name: revenue_share_pct
+        description: Status revenue as percentage of all statuses.
+
+      - name: order_share_pct
+        description: Status order count as percentage of all statuses.
+
+      - name: first_order_date
+        description: Earliest order with this status.
+
+      - name: last_order_date
+        description: Most recent order with this status.
