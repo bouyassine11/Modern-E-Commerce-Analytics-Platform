@@ -1,0 +1,169 @@
+# =============================================================================
+# CI/CD Pipeline — E-Commerce Analytics Platform
+# =============================================================================
+# Runs on every push to main and on pull requests. Pipeline stages:
+#   1. lint       — ruff (Python), yamllint (YAML)
+#   2. test       — pytest unit + DAG validation
+#   3. dbt-validate — dbt debug + compile
+#   4. docker     — build Docker images
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Lint
+  # --------------------------------------------------------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff yamllint
+
+      - name: Ruff — Python linting
+        run: ruff check --output-format=github .
+
+      - name: YamlLint — YAML linting
+        run: yamllint --no-warnings . || true
+
+  # --------------------------------------------------------------------------
+  # Unit tests
+  # --------------------------------------------------------------------------
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run unit tests
+        run: pytest tests/ -v --cov=etl --cov-report=term-missing --cov-report=xml -m "not integration"
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+  # --------------------------------------------------------------------------
+  # dbt validation
+  # --------------------------------------------------------------------------
+  dbt-validate:
+    name: dbt Validate
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ecommerce
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dbt
+        run: |
+          python -m pip install --upgrade pip
+          pip install dbt-postgres>=1.8
+
+      - name: Bootstrap raw schema
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d ecommerce -f docker/postgres/init/02_create_schemas.sql
+        env:
+          PGPASSWORD: postgres
+
+      - name: dbt debug
+        run: dbt debug --project-dir dbt/ecommerce --profiles-dir dbt/ecommerce
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ecommerce
+          POSTGRES_HOST: localhost
+
+      - name: dbt compile
+        run: dbt compile --project-dir dbt/ecommerce --profiles-dir dbt/ecommerce
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ecommerce
+          POSTGRES_HOST: localhost
+
+  # --------------------------------------------------------------------------
+  # Docker build
+  # --------------------------------------------------------------------------
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Airflow image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/airflow/Dockerfile
+          push: false
+          tags: ecommerce-airflow:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build PostgreSQL image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/postgres/Dockerfile
+          push: false
+          tags: ecommerce-postgres:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
