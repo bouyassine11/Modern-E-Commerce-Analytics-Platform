@@ -12,8 +12,11 @@ with customers as (
         country,
         signup_date,
         status,
-        created_at as stg_created_at
-    from {{ ref('stg_customers') }}
+        stg_created_at,
+        dbt_valid_from,
+        dbt_valid_to,
+        case when dbt_valid_to is null then true else false end as is_current
+    from {{ ref('snap_customers') }}
 ),
 
 customer_orders as (
@@ -39,7 +42,7 @@ customer_metrics as (
 )
 
 select
-    row_number() over (order by c.customer_id) as customer_key,
+    row_number() over (order by c.customer_id, c.dbt_valid_from) as customer_key,
     c.customer_id,
     c.first_name || ' ' || c.last_name as full_name,
     c.email,
@@ -58,9 +61,9 @@ select
     coalesce(m.total_revenue, 0) as total_revenue,
     coalesce(m.avg_order_value, 0) as avg_order_value,
     m.customer_lifetime_days,
-    current_timestamp as dbt_valid_from,
-    null::timestamp as dbt_valid_to,
-    true as is_current,
+    c.dbt_valid_from as effective_date,
+    c.dbt_valid_to as end_date,
+    c.is_current,
     c.stg_created_at as created_at
 from customers c
 left join customer_metrics m on c.customer_id = m.customer_id

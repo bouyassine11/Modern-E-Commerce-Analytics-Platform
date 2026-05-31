@@ -1,3 +1,12 @@
+{{
+    config(
+        materialized='incremental',
+        unique_key='order_item_id',
+        on_schema_change='append_new_columns',
+        tags=['marts', 'fact', 'daily']
+    )
+}}
+
 with orders as (
     select
         order_id,
@@ -6,11 +15,15 @@ with orders as (
         quantity,
         unit_price,
         quantity * unit_price as revenue,
-        order_amount,
-        payment_method,
         payment_status,
         order_date
     from {{ ref('int_orders_enriched') }}
+
+{% if is_incremental() %}
+    where order_date > (
+        select max(order_date) from {{ this }}
+    )
+{% endif %}
 ),
 
 order_items as (
@@ -19,8 +32,9 @@ order_items as (
 ),
 
 dim_cust as (
-    select customer_key, customer_id
+    select customer_key, customer_id, is_current
     from {{ ref('dim_customer') }}
+    where is_current
 ),
 
 dim_prod as (
@@ -34,7 +48,9 @@ dim_d as (
 )
 
 select
-    row_number() over (order by o.order_id, o.product_id)::bigint as sales_key,
+    ('x' || substr(md5(
+        o.order_id::text || '-' || oi.order_item_id::text
+    ), 1, 8))::bit(32)::bigint as sales_key,
     o.order_id,
     oi.order_item_id,
     dc.customer_key,
@@ -44,8 +60,11 @@ select
     o.unit_price,
     0::numeric(10,2) as discount_amount,
     o.revenue as total_amount,
-    o.payment_status,
-    coalesce(o.payment_status, 'pending') as order_status,
+    coalesce(o.payment_status, 'pending') as payment_status,
+    case
+        when o.payment_status = 'completed' then 'paid'
+        else o.payment_status
+    end as order_status,
     current_timestamp as created_at,
     1 as etl_batch_id
 from orders o

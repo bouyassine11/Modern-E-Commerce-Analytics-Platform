@@ -55,6 +55,13 @@ models:
         - marts
         - daily
 
+snapshots:
+  +target_schema: dw
+  +strategy: check
+  +tags:
+    - snapshot
+    - daily
+
 seeds:
   +schema: stg
   +quote_columns: false

@@ -7,12 +7,21 @@ models:
 
   - name: dim_customer
     description: >
-      Customer dimension table with SCD Type 1 semantics (overwrite on change).
-      Surrogate key (customer_key) enables stable references from fact tables
-      even if the business key changes. Includes derived columns like full_name
-      and customer_tenure_days for analytical convenience. SCD Type 2 columns
-      (dbt_valid_from, dbt_valid_to, is_current) are present for future
-      migration to Type 2 tracking.
+      Customer dimension with SCD Type 2 tracking for city and country changes.
+      Built on the dbt snapshot `snap_customers` which detects column-level
+      changes via the `check` strategy. Each customer version gets a unique
+      `customer_key`. The `is_current` flag enables efficient filtering to the
+      active version. Historical versions are preserved for point-in-time
+      analysis.
+
+      **SCD behavior:** When `city` or `country` changes, the snapshot closes
+      the old version (sets `end_date`) and creates a new version with
+      `is_current = true`. All other attributes (email, phone, etc.) reflect
+      the most recent values per version.
+
+      **Known limitation:** `effective_date` is set to the dbt snapshot
+      detection time, not the source change time. For accurate historical
+      fact attribution, source CDC timestamps must be provided.
 
     columns:
       - name: customer_key
@@ -80,14 +89,20 @@ models:
       - name: customer_lifetime_days
         description: Days between first and last order.
 
-      - name: dbt_valid_from
-        description: SCD tracking — timestamp when this record became active.
+      - name: effective_date
+        description: >
+          SCD tracking — timestamp when this customer version became active.
+          Set by dbt snapshot `dbt_valid_from` at detection time.
+        tests:
+          - not_null
 
-      - name: dbt_valid_to
-        description: SCD tracking — timestamp when this record was superseded. NULL = current.
+      - name: end_date
+        description: >
+          SCD tracking — timestamp when this version was superseded by a newer
+          one. NULL indicates the current active version.
 
       - name: is_current
-        description: SCD tracking — TRUE for the active record.
+        description: TRUE for the current active version of each customer.
         tests:
           - not_null
 
@@ -230,14 +245,26 @@ models:
   - name: fact_sales
     description: >
       Atomic transaction fact table — grain is one row per order line item.
-      Joins int_order_line_items with dim_customer, dim_product, dim_date and
-      enriches with payment status from int_payment_summary. This is the core
-      fact table powering revenue, product, and customer analytics. Designed
-      for time-range partitioning at scale.
+      Joins int_orders_enriched with dim_customer, dim_product, dim_date.
+      This is the core fact table powering revenue, product, and customer
+      analytics. Designed for incremental loading: on each run, only orders
+      placed since the last load are processed.
+
+      **Incremental logic:** The `is_incremental()` block filters
+      `int_orders_enriched` to rows where `order_date > (select max(order_date)
+      from fact_sales)`. The `unique_key` is `order_item_id` for merge-based
+      dedup. `on_schema_change = 'append_new_columns'` handles schema drift.
+
+      **SCD join:** The customer surrogate key joins on `dim_customer` where
+      `is_current = true`. Historical version attribution requires point-in-time
+      date-range matching when source change timestamps are available.
 
     columns:
       - name: sales_key
-        description: Surrogate key — BIGINT for high-volume fact table.
+        description: >
+          Surrogate key — BIGINT derived from MD5 hash of order_id and
+          order_item_id (first 8 hex chars → 32-bit int). Deterministic
+          and stable across incremental runs.
         tests:
           - unique
           - not_null
@@ -246,7 +273,12 @@ models:
         description: Degenerate dimension — order identifier.
 
       - name: order_item_id
-        description: Degenerate dimension — line-item identifier.
+        description: >
+          Degenerate dimension — line-item identifier. Used as the
+          `unique_key` for incremental merge dedup.
+        tests:
+          - unique
+          - not_null
 
       - name: customer_key
         description: Foreign key to dim_customer.
