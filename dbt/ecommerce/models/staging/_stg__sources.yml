@@ -1,0 +1,165 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    description: >
+      Landing zone for CSV data. All columns stored as TEXT/VARCHAR to guarantee
+      load success. No constraints, no type casting — pure append-only mirror of
+      the source files. Every pipeline run TRUNCATE + INSERTs into these tables
+      for idempotency.
+
+    # freshness:          # requires _etl_loaded_at TIMESTAMP DEFAULT NOW() on raw tables
+    #   error_after:
+    #     count: 48
+    #     period: hour
+    #   warn_after:
+    #     count: 24
+    #     period: hour
+    # loaded_at_field: _etl_loaded_at
+
+    quoting:
+      database: false
+      schema: false
+      identifier: false
+
+    tables:
+      - name: customers_raw
+        description: Raw customer records ingested from customers.csv.
+
+        columns:
+          - name: customer_id
+            description: Business key — unique customer identifier from source.
+
+          - name: first_name
+            description: Customer's given name.
+
+          - name: last_name
+            description: Customer's family name.
+
+          - name: email
+            description: Customer email address — used for contact and dedup in staging.
+
+          - name: phone
+            description: Raw phone number string (unformatted).
+
+          - name: address
+            description: Street-level mailing address.
+
+          - name: city
+            description: City of residence.
+
+          - name: state
+            description: State or province code/name.
+
+          - name: zip_code
+            description: Postal code.
+
+          - name: country
+            description: Country name.
+
+          - name: signup_date
+            description: ISO date string of account creation.
+
+          - name: status
+            description: Account status (active, inactive, suspended).
+
+      - name: products_raw
+        description: Raw product catalog records ingested from products.csv.
+
+        columns:
+          - name: product_id
+            description: Business key — unique product identifier.
+
+          - name: name
+            description: Product display name.
+
+          - name: category
+            description: Product category (Electronics, Clothing, etc.).
+
+          - name: price
+            description: Raw price string — cast to NUMERIC in staging.
+
+          - name: stock_quantity
+            description: Raw stock count string — cast to INTEGER in staging.
+
+          - name: description
+            description: Long-form product description text.
+
+          - name: created_at
+            description: ISO timestamp of product record creation.
+
+          - name: updated_at
+            description: ISO timestamp of last product record update.
+
+      - name: orders_raw
+        description: Raw order records ingested from orders.csv.
+
+        columns:
+          - name: order_id
+            description: Business key — unique order identifier.
+
+          - name: customer_id
+            description: Foreign key to customers. Stored as VARCHAR; FK enforced in staging.
+
+          - name: order_date
+            description: ISO timestamp of order placement.
+
+          - name: status
+            description: Order lifecycle status.
+
+          - name: total_amount
+            description: Raw total string — cast to NUMERIC in staging.
+
+          - name: shipping_address
+            description: Delivery address for the order.
+
+          - name: payment_method
+            description: Payment method identifier (credit_card, paypal, stripe, bank_transfer).
+
+      - name: order_items_raw
+        description: Raw line-item records ingested from order_items.csv.
+
+        columns:
+          - name: order_item_id
+            description: Business key — unique line-item identifier.
+
+          - name: order_id
+            description: Foreign key to orders. Stored as VARCHAR; FK enforced in staging.
+
+          - name: product_id
+            description: Foreign key to products. Stored as VARCHAR; FK enforced in staging.
+
+          - name: quantity
+            description: Raw quantity string — cast to INTEGER in staging.
+
+          - name: unit_price
+            description: Raw unit price string — cast to NUMERIC in staging.
+
+          - name: total_price
+            description: Raw line total string — cast to NUMERIC in staging.
+
+      - name: payments_raw
+        description: Raw payment transaction records ingested from payments.csv.
+
+        columns:
+          - name: payment_id
+            description: Business key — unique payment identifier.
+
+          - name: order_id
+            description: Foreign key to orders. Stored as VARCHAR; FK enforced in staging.
+
+          - name: payment_date
+            description: ISO timestamp of payment processing.
+
+          - name: amount
+            description: Raw payment amount string — cast to NUMERIC in staging.
+
+          - name: payment_method
+            description: Payment method identifier.
+
+          - name: status
+            description: Payment status (paid, failed, pending, refunded).
+
+          - name: transaction_id
+            description: External gateway transaction ID — unique per payment.

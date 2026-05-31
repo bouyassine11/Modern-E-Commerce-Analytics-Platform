@@ -1,0 +1,272 @@
+version: 2
+
+models:
+  - name: stg_customers
+    description: >
+      Clean, typed customer records. Raw VARCHAR columns are cast to proper
+      types (INTEGER, DATE, VARCHAR constraints). Duplicate customer_ids are
+      removed keeping the most recent row by signup_date. Emails are
+      lowercased and trimmed. Status is validated against an allowlist.
+
+    columns:
+      - name: customer_id
+        description: Unique customer identifier (business key).
+        tests:
+          - unique
+          - not_null
+
+      - name: first_name
+        description: Customer's given name.
+        tests:
+          - not_null
+
+      - name: last_name
+        description: Customer's family name.
+        tests:
+          - not_null
+
+      - name: email
+        description: Canonical email address (lowercase, trimmed).
+        tests:
+          - unique
+          - not_null
+
+      - name: phone
+        description: Normalized phone number.
+
+      - name: address
+        description: Street-level mailing address.
+
+      - name: city
+        description: City of residence.
+
+      - name: state
+        description: State or province code/name.
+
+      - name: zip_code
+        description: Postal code.
+
+      - name: country
+        description: Country name. Defaults to 'USA' when NULL.
+        tests:
+          - not_null
+
+      - name: signup_date
+        description: Date of account creation.
+        tests:
+          - not_null
+
+      - name: status
+        description: Account lifecycle status.
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - active
+                - inactive
+                - suspended
+
+      - name: created_at
+        description: DW load timestamp.
+
+  - name: stg_products
+    description: >
+      Clean, typed product catalog. Price and stock_quantity are cast from
+      VARCHAR to NUMERIC and INTEGER respectively. Duplicate product_ids are
+      removed keeping the most recently updated row. Prices are validated to
+      be non-negative.
+
+    columns:
+      - name: product_id
+        description: Unique product identifier (business key).
+        tests:
+          - unique
+          - not_null
+
+      - name: name
+        description: Product display name.
+        tests:
+          - not_null
+
+      - name: category
+        description: Product category.
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - Electronics
+                - Clothing
+                - Home & Garden
+                - Books
+                - Sports & Outdoors
+                - Beauty & Personal Care
+                - Toys & Games
+                - Food & Beverages
+
+      - name: price
+        description: Current unit price (non-negative).
+        tests:
+          - not_null
+
+      - name: stock_quantity
+        description: Current inventory count.
+        tests:
+          - not_null
+
+      - name: description
+        description: Long-form product description.
+
+      - name: created_at
+        description: Timestamp of product record creation.
+
+      - name: updated_at
+        description: Timestamp of last product record update.
+
+  - name: stg_orders
+    description: >
+      Clean, typed order headers. Order date is cast to TIMESTAMP, total_amount
+      to NUMERIC. Status is validated against the order lifecycle. FK to
+      customers is enforced via dbt relationship test. Cancelled orders have
+      their total_amount preserved for funnel analysis.
+
+    columns:
+      - name: order_id
+        description: Unique order identifier (business key).
+        tests:
+          - unique
+          - not_null
+
+      - name: customer_id
+        description: Foreign key to stg_customers.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_customers')
+              field: customer_id
+
+      - name: order_date
+        description: Timestamp of order placement.
+        tests:
+          - not_null
+
+      - name: status
+        description: Order lifecycle status.
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - pending
+                - processing
+                - shipped
+                - delivered
+                - cancelled
+                - refunded
+
+      - name: total_amount
+        description: Total order value (non-negative).
+        tests:
+          - not_null
+
+      - name: shipping_address
+        description: Delivery address.
+
+      - name: payment_method
+        description: Payment method used.
+
+      - name: created_at
+        description: DW load timestamp.
+
+  - name: stg_order_items
+    description: >
+      Clean, typed line-item records. Quantity and prices are cast from VARCHAR
+      to INTEGER and NUMERIC. FKs to orders and products are enforced via dbt
+      relationship tests. Each order_id + order_item_id combination is unique.
+
+    columns:
+      - name: order_item_id
+        description: Unique line-item identifier (business key).
+        tests:
+          - unique
+          - not_null
+
+      - name: order_id
+        description: Foreign key to stg_orders.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_orders')
+              field: order_id
+
+      - name: product_id
+        description: Foreign key to stg_products.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_products')
+              field: product_id
+
+      - name: quantity
+        description: Units purchased (positive integer).
+        tests:
+          - not_null
+
+      - name: unit_price
+        description: Price per unit at time of purchase.
+
+      - name: total_price
+        description: Computed line total (quantity x unit_price).
+        tests:
+          - not_null
+
+  - name: stg_payments
+    description: >
+      Clean, typed payment transactions. Amount is cast to NUMERIC, payment_date
+      to TIMESTAMP. FK to orders is enforced via dbt relationship test.
+      Transaction ID is unique across all payments. Status is validated against
+      the payment lifecycle.
+
+    columns:
+      - name: payment_id
+        description: Unique payment identifier (business key).
+        tests:
+          - unique
+          - not_null
+
+      - name: order_id
+        description: Foreign key to stg_orders.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_orders')
+              field: order_id
+
+      - name: payment_date
+        description: Timestamp of payment processing.
+
+      - name: amount
+        description: Payment amount. Negative values indicate refunds.
+        tests:
+          - not_null
+
+      - name: payment_method
+        description: Payment gateway or method.
+
+      - name: status
+        description: Payment status.
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - pending
+                - completed
+                - failed
+                - refunded
+
+      - name: transaction_id
+        description: External gateway transaction ID.
+        tests:
+          - unique
+          - not_null
+
+      - name: created_at
+        description: DW load timestamp.

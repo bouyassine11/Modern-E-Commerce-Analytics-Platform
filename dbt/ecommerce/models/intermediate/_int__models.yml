@@ -1,0 +1,181 @@
+version: 2
+
+models:
+  - name: int_order_details
+    description: >
+      Enriched order header with payment summary and item count. Joins
+      stg_orders → stg_payments (1:N) and stg_orders → stg_order_items (1:N)
+      to produce one row per order with aggregated payment info and line-item
+      counts. Used downstream by fact_sales for order-level context.
+
+    columns:
+      - name: order_id
+        description: Unique order identifier.
+        tests:
+          - unique
+          - not_null
+
+      - name: customer_id
+        description: Foreign key to dim_customer.
+
+      - name: order_date
+        description: Timestamp of order placement.
+
+      - name: order_status
+        description: Order lifecycle status.
+
+      - name: item_count
+        description: Number of distinct line items in the order.
+
+      - name: total_item_quantity
+        description: Sum of all item quantities in the order.
+
+      - name: payment_count
+        description: Number of payment transactions against this order.
+
+      - name: total_paid
+        description: Sum of completed payment amounts.
+
+      - name: total_refunded
+        description: Sum of refunded payment amounts.
+
+      - name: net_revenue
+        description: Total paid minus total refunded.
+
+      - name: payment_status_summary
+        description: Comma-separated list of distinct payment statuses.
+
+  - name: int_product_metrics
+    description: >
+      Aggregated product performance metrics at the SKU level. Joins
+      stg_order_items → stg_products to compute units sold, gross revenue,
+      and last sale date per product. Used by rpt_product_performance.
+
+    columns:
+      - name: product_id
+        description: Unique product identifier.
+        tests:
+          - unique
+          - not_null
+
+      - name: product_name
+        description: Product display name.
+
+      - name: category
+        description: Product category.
+
+      - name: total_units_sold
+        description: Lifetime units sold across all orders.
+
+      - name: gross_revenue
+        description: Lifetime gross revenue from this product.
+
+      - name: avg_unit_price
+        description: Average selling price per unit.
+
+      - name: last_order_date
+        description: Date of the most recent order containing this product.
+
+      - name: days_since_last_sale
+        description: Days elapsed since the last order.
+
+  - name: int_customer_orders
+    description: >
+      Aggregated customer purchase history. Joins stg_orders → stg_customers
+      to produce per-customer metrics used by dim_customer and
+      rpt_customer_ltv.
+
+    columns:
+      - name: customer_id
+        description: Unique customer identifier.
+        tests:
+          - unique
+          - not_null
+
+      - name: first_order_date
+        description: Date of the customer's first order.
+
+      - name: last_order_date
+        description: Date of the customer's most recent order.
+
+      - name: total_orders
+        description: Lifetime order count for this customer.
+
+      - name: total_revenue
+        description: Lifetime revenue from this customer.
+
+      - name: avg_order_value
+        description: Average revenue per order.
+
+      - name: customer_lifetime_days
+        description: Days between first and last order.
+
+      - name: days_since_last_order
+        description: Days elapsed since the most recent order.
+
+  - name: int_order_line_items
+    description: >
+      Denormalized order-to-line-item bridge. Each row is one line item with
+      order-level context (date, customer, status) joined in. This is the
+      primary input for fact_sales to avoid N+1 lookups against staging tables.
+
+    columns:
+      - name: order_item_id
+        description: Unique line-item identifier.
+        tests:
+          - unique
+          - not_null
+
+      - name: order_id
+        description: Order containing this line item.
+
+      - name: customer_id
+        description: Customer who placed the order.
+
+      - name: product_id
+        description: Product referenced by this line item.
+
+      - name: order_date
+        description: Date the order was placed.
+
+      - name: quantity
+        description: Units purchased.
+
+      - name: unit_price
+        description: Price per unit.
+
+      - name: total_amount
+        description: Line total (quantity × unit_price).
+
+      - name: order_status
+        description: Order lifecycle status.
+
+  - name: int_payment_summary
+    description: >
+      One row per order with aggregated payment transaction data. Used by
+      fact_sales and rpt_order_funnel for payment-status context.
+
+    columns:
+      - name: order_id
+        description: Unique order identifier.
+        tests:
+          - unique
+          - not_null
+
+      - name: payment_count
+        description: Number of payment attempts on this order.
+
+      - name: payment_status
+        description: Rolled-up payment status logic — 'paid' if any completed payment exists.
+
+      - name: total_paid
+        description: Sum of completed payment amounts.
+
+      - name: total_refunded
+        description: Sum of refunded payment amounts.
+
+      - name: net_amount
+        description: Total paid minus total refunded.
+
+      - name: first_payment_date
+        description: Timestamp of the earliest payment attempt.

@@ -1,0 +1,62 @@
+name: ecommerce
+version: 1.0.0
+config-version: 2
+
+profile: ecommerce
+
+model-paths:
+  - models
+analysis-paths:
+  - analyses
+test-paths:
+  - tests
+seed-paths:
+  - seeds
+macro-paths:
+  - macros
+snapshot-paths:
+  - snapshots
+docs-paths:
+  - docs
+
+clean-targets:
+  - target
+  - logs
+
+quoting:
+  database: false
+  schema: false
+  identifier: false
+
+vars:
+  date_spine_start: "2020-01-01"
+  date_spine_end: "2030-12-31"
+
+models:
+  ecommerce:
+    staging:
+      +materialized: view
+      +schema: stg
+      +tags:
+        - staging
+        - hourly
+
+    intermediate:
+      +materialized: ephemeral
+      +schema: stg
+      +tags:
+        - intermediate
+        - hourly
+
+    marts:
+      +materialized: table
+      +schema: dw
+      +tags:
+        - marts
+        - daily
+
+seeds:
+  +schema: stg
+  +quote_columns: false
+  +tags:
+    - seed

@@ -1,0 +1,470 @@
+version: 2
+
+models:
+  # ---------------------------------------------------------------------------
+  # Dimensions
+  # ---------------------------------------------------------------------------
+
+  - name: dim_customer
+    description: >
+      Customer dimension table with SCD Type 1 semantics (overwrite on change).
+      Surrogate key (customer_key) enables stable references from fact tables
+      even if the business key changes. Includes derived columns like full_name
+      and customer_tenure_days for analytical convenience. SCD Type 2 columns
+      (dbt_valid_from, dbt_valid_to, is_current) are present for future
+      migration to Type 2 tracking.
+
+    columns:
+      - name: customer_key
+        description: Surrogate key — stable primary key for this dimension.
+        tests:
+          - unique
+          - not_null
+
+      - name: customer_id
+        description: Business key — unique customer identifier from source.
+        tests:
+          - unique
+          - not_null
+
+      - name: full_name
+        description: Derived — first_name concatenated with last_name.
+        tests:
+          - not_null
+
+      - name: email
+        description: Customer email address.
+
+      - name: phone
+        description: Normalized phone number.
+
+      - name: address
+        description: Mailing address.
+
+      - name: city
+        description: City of residence.
+
+      - name: state
+        description: State or province.
+
+      - name: zip_code
+        description: Postal code.
+
+      - name: country
+        description: Country name.
+
+      - name: signup_date
+        description: Date of account creation.
+
+      - name: customer_status
+        description: Account lifecycle status.
+
+      - name: customer_tenure_days
+        description: Derived — days since signup_date.
+
+      - name: first_order_date
+        description: Date of the customer's first order (from int_customer_orders).
+
+      - name: last_order_date
+        description: Date of the customer's most recent order.
+
+      - name: total_orders
+        description: Lifetime order count.
+
+      - name: total_revenue
+        description: Lifetime revenue attributed to this customer.
+
+      - name: avg_order_value
+        description: Average revenue per order.
+
+      - name: customer_lifetime_days
+        description: Days between first and last order.
+
+      - name: dbt_valid_from
+        description: SCD tracking — timestamp when this record became active.
+
+      - name: dbt_valid_to
+        description: SCD tracking — timestamp when this record was superseded. NULL = current.
+
+      - name: is_current
+        description: SCD tracking — TRUE for the active record.
+        tests:
+          - not_null
+
+      - name: created_at
+        description: DW load timestamp.
+
+  - name: dim_product
+    description: >
+      Product dimension table. Surrogate-keyed with product_key as the stable
+      primary key. Includes category, pricing, and inventory attributes.
+      Product dimension typically has low SCD churn; Type 1 is sufficient.
+
+    columns:
+      - name: product_key
+        description: Surrogate key — stable primary key for this dimension.
+        tests:
+          - unique
+          - not_null
+
+      - name: product_id
+        description: Business key — unique product identifier from source.
+        tests:
+          - unique
+          - not_null
+
+      - name: product_name
+        description: Product display name.
+        tests:
+          - not_null
+
+      - name: category
+        description: Product category.
+
+      - name: price
+        description: Current unit price.
+
+      - name: stock_quantity
+        description: Current inventory count.
+
+      - name: description
+        description: Long-form product description.
+
+      - name: total_units_sold
+        description: Lifetime units sold (from int_product_metrics).
+
+      - name: gross_revenue
+        description: Lifetime gross revenue.
+
+      - name: avg_unit_price
+        description: Average selling price across all transactions.
+
+      - name: last_order_date
+        description: Date of most recent sale.
+
+      - name: days_since_last_sale
+        description: Days since the most recent sale.
+
+      - name: is_active
+        description: Flag indicating whether the product has been sold recently.
+
+      - name: created_at
+        description: Source record creation timestamp.
+
+      - name: updated_at
+        description: Source record update timestamp.
+
+  - name: dim_date
+    description: >
+      Static date dimension covering 2020-01-01 to 2030-12-31. Populated via a
+      dbt date spine macro — no ETL dependency. Every column is pre-computed
+      for analytical convenience: day, week, month, quarter, year, fiscal
+      periods, season, and weekend/holiday flags. The date_key uses the
+      YYYYMMDD integer format for efficient joins.
+
+    columns:
+      - name: date_key
+        description: Surrogate key — integer in YYYYMMDD format.
+        tests:
+          - unique
+          - not_null
+
+      - name: full_date
+        description: Calendar date.
+        tests:
+          - unique
+          - not_null
+
+      - name: day
+        description: Day of month (1–31).
+
+      - name: month
+        description: Month number (1–12).
+
+      - name: month_name
+        description: Month name (January–December).
+
+      - name: month_short_name
+        description: Abbreviated month name (Jan–Dec).
+
+      - name: quarter
+        description: Calendar quarter (1–4).
+
+      - name: year
+        description: Four-digit year.
+
+      - name: day_of_week
+        description: Day of week (0=Sunday, 6=Saturday).
+
+      - name: day_name
+        description: Day name (Sunday–Saturday).
+
+      - name: day_of_year
+        description: Ordinal day of year (1–366).
+
+      - name: week_of_year
+        description: ISO week number (1–53).
+
+      - name: is_weekend
+        description: TRUE for Saturday and Sunday.
+
+      - name: is_holiday
+        description: Placeholder flag for holiday calendar (currently FALSE).
+
+      - name: fiscal_quarter
+        description: Fiscal quarter (configurable — default aligns with calendar).
+
+      - name: fiscal_year
+        description: Fiscal year (configurable).
+
+      - name: month_end_date
+        description: Last calendar day of the month.
+
+      - name: season
+        description: Meteorological season (Spring, Summer, Fall, Winter).
+
+  # ---------------------------------------------------------------------------
+  # Fact Tables
+  # ---------------------------------------------------------------------------
+
+  - name: fact_sales
+    description: >
+      Atomic transaction fact table — grain is one row per order line item.
+      Joins int_order_line_items with dim_customer, dim_product, dim_date and
+      enriches with payment status from int_payment_summary. This is the core
+      fact table powering revenue, product, and customer analytics. Designed
+      for time-range partitioning at scale.
+
+    columns:
+      - name: sales_key
+        description: Surrogate key — BIGINT for high-volume fact table.
+        tests:
+          - unique
+          - not_null
+
+      - name: order_id
+        description: Degenerate dimension — order identifier.
+
+      - name: order_item_id
+        description: Degenerate dimension — line-item identifier.
+
+      - name: customer_key
+        description: Foreign key to dim_customer.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_key
+
+      - name: product_key
+        description: Foreign key to dim_product.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_product')
+              field: product_key
+
+      - name: date_key
+        description: Foreign key to dim_date (order date).
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+
+      - name: quantity
+        description: Units purchased in this line item.
+
+      - name: unit_price
+        description: Price per unit recorded at time of purchase.
+
+      - name: discount_amount
+        description: Discount applied to this line item.
+
+      - name: total_amount
+        description: Net line total (quantity × unit_price − discount).
+
+      - name: payment_status
+        description: Rolled-up payment status — 'paid', 'pending', 'failed', 'refunded'.
+
+      - name: order_status
+        description: Order lifecycle status at time of DW load.
+
+      - name: created_at
+        description: DW load timestamp.
+
+      - name: etl_batch_id
+        description: ETL run identifier for lineage and debugging.
+
+  # ---------------------------------------------------------------------------
+  # Report / Mart Tables
+  # ---------------------------------------------------------------------------
+
+  - name: rpt_daily_revenue
+    description: >
+      Daily revenue summary — one row per calendar day. Pre-computed for
+      Metabase dashboards to avoid repeated aggregation on fact_sales.
+      Includes revenue, order count, item count, and average order value.
+
+    columns:
+      - name: report_date
+        description: Calendar date.
+        tests:
+          - unique
+          - not_null
+
+      - name: total_revenue
+        description: Gross revenue for the day.
+
+      - name: total_orders
+        description: Number of distinct orders placed.
+
+      - name: total_items
+        description: Total units sold.
+
+      - name: average_order_value
+        description: Revenue divided by order count.
+
+      - name: revenue_percent_of_total
+        description: Day's revenue as a percentage of overall total.
+
+      - name: running_total_revenue
+        description: Cumulative revenue up to and including this date.
+
+  - name: rpt_customer_ltv
+    description: >
+      Customer lifetime value report — one row per customer. Used for cohort
+      analysis, VIP segmentation, and churn tracking. Segments customers by
+      recency, frequency, and monetary (RFM) value.
+
+    columns:
+      - name: customer_key
+        description: Foreign key to dim_customer.
+        tests:
+          - unique
+          - not_null
+
+      - name: customer_id
+        description: Business key for traceability.
+
+      - name: full_name
+        description: Customer name.
+
+      - name: signup_date
+        description: Account creation date.
+
+      - name: first_order_date
+        description: Date of first purchase.
+
+      - name: last_order_date
+        description: Date of most recent purchase.
+
+      - name: total_orders
+        description: Lifetime order count.
+
+      - name: total_revenue
+        description: Lifetime revenue.
+
+      - name: avg_order_value
+        description: Average revenue per order.
+
+      - name: customer_lifetime_days
+        description: Days between first and last order.
+
+      - name: days_since_last_order
+        description: Recency — days since most recent purchase.
+
+      - name: customer_segment
+        description: RFM segment label (e.g. 'Champions', 'At Risk', 'Lost').
+
+      - name: customer_tenure_days
+        description: Days since signup.
+
+      - name: country
+        description: Customer country.
+
+  - name: rpt_order_funnel
+    description: >
+      Order funnel analysis — tracks conversion from order placement through
+      payment completion. Each row represents a date with counts at each
+      funnel stage. Enables dropout analysis and payment-success-rate tracking.
+
+    columns:
+      - name: report_date
+        description: Calendar date.
+        tests:
+          - unique
+          - not_null
+
+      - name: total_orders
+        description: Orders placed on this date.
+
+      - name: delivered_orders
+        description: Orders that reached delivered status.
+
+      - name: cancelled_orders
+        description: Orders that were cancelled.
+
+      - name: refunded_orders
+        description: Orders that were refunded.
+
+      - name: paid_orders
+        description: Orders with at least one completed payment.
+
+      - name: failed_payment_orders
+        description: Orders with all payments failed.
+
+      - name: pending_payment_orders
+        description: Orders with payments still pending.
+
+      - name: payment_success_rate
+        description: Paid orders divided by total orders (excluding cancelled).
+
+  - name: rpt_product_performance
+    description: >
+      Product performance report — one row per product with sales metrics,
+      rankings, and category percentiles. Used for inventory planning,
+      merchandising decisions, and category analysis.
+
+    columns:
+      - name: product_key
+        description: Foreign key to dim_product.
+        tests:
+          - unique
+          - not_null
+
+      - name: product_id
+        description: Business key.
+
+      - name: product_name
+        description: Product display name.
+
+      - name: category
+        description: Product category.
+
+      - name: total_units_sold
+        description: Lifetime units sold.
+
+      - name: gross_revenue
+        description: Lifetime gross revenue.
+
+      - name: avg_unit_price
+        description: Average selling price.
+
+      - name: current_price
+        description: Latest listed price from dim_product.
+
+      - name: price_vs_avg_ratio
+        description: Current price divided by average selling price.
+
+      - name: revenue_rank
+        description: Revenue rank within its category (1 = highest).
+
+      - name: category_revenue_pct
+        description: Product revenue as a percentage of its category total.
+
+      - name: last_order_date
+        description: Date of most recent sale.
+
+      - name: days_since_last_sale
+        description: Days since the most recent sale.
