@@ -1,3 +1,19 @@
+database:
+  host: localhost
+  port: 5432
+  dbname: ecommerce
+  user: postgres
+  password: postgres
+  schema: raw
+
+etl:
+  file_map:
+    products: "products.csv"
+    customers: "customers.csv"
+    orders: "orders.csv"
+    order_items: "order_items.csv"
+    payments: "payments.csv"
+
 data:
   output_dir: "data/raw"
   file_format: "csv"

@@ -1,0 +1,39 @@
+[2026-05-31 18:06:23] INFO     etl.ingest | ETL pipeline starting
+[2026-05-31 18:06:23] INFO     etl.ingest | Phase 1/3: Extract
+[2026-05-31 18:06:23] INFO     etl.extract | Extracting products...
+[2026-05-31 18:06:23] INFO     etl.utils | Read 500 rows from products.csv
+[2026-05-31 18:06:23] INFO     etl.extract | Extracting customers...
+[2026-05-31 18:06:23] INFO     etl.utils | Read 10000 rows from customers.csv
+[2026-05-31 18:06:23] INFO     etl.extract | Extracting orders...
+[2026-05-31 18:06:23] INFO     etl.utils | Read 100000 rows from orders.csv
+[2026-05-31 18:06:23] INFO     etl.extract | Extracting order_items...
+[2026-05-31 18:06:24] INFO     etl.utils | Read 300046 rows from order_items.csv
+[2026-05-31 18:06:24] INFO     etl.extract | Extracting payments...
+[2026-05-31 18:06:25] INFO     etl.utils | Read 100000 rows from payments.csv
+[2026-05-31 18:06:25] INFO     etl.ingest | Phase 2/3: Transform
+[2026-05-31 18:06:25] INFO     etl.transform | ==================================================
+[2026-05-31 18:06:25] INFO     etl.transform | Transform phase
+[2026-05-31 18:06:25] INFO     etl.transform | ==================================================
+[2026-05-31 18:06:26] INFO     etl.transform |   products                500 (unchanged)
+[2026-05-31 18:06:26] INFO     etl.transform |   customers             10000 (unchanged)
+[2026-05-31 18:06:26] INFO     etl.transform |   orders               100000 (unchanged)
+[2026-05-31 18:06:26] INFO     etl.transform |   order_items          300046 (unchanged)
+[2026-05-31 18:06:26] INFO     etl.transform |   payments             100000 (unchanged)
+[2026-05-31 18:06:26] INFO     etl.ingest | Phase 3/3: Load
+[2026-05-31 18:06:26] INFO     etl.ingest | Dry-run mode — skipping database load
+[2026-05-31 18:06:26] INFO     etl.ingest |   Would load 500 rows into raw.products_raw
+[2026-05-31 18:06:26] INFO     etl.ingest |   Would load 10000 rows into raw.customers_raw
+[2026-05-31 18:06:26] INFO     etl.ingest |   Would load 100000 rows into raw.orders_raw
+[2026-05-31 18:06:26] INFO     etl.ingest |   Would load 300046 rows into raw.order_items_raw
+[2026-05-31 18:06:26] INFO     etl.ingest |   Would load 100000 rows into raw.payments_raw
+[2026-05-31 18:06:26] INFO     etl.utils | run_pipeline completed in 3.31s
+[2026-05-31 18:06:26] INFO     etl.ingest | ==================================================
+[2026-05-31 18:06:26] INFO     etl.ingest | Pipeline Summary
+[2026-05-31 18:06:26] INFO     etl.ingest | ==================================================
+[2026-05-31 18:06:26] INFO     etl.ingest |   products                500
+[2026-05-31 18:06:26] INFO     etl.ingest |   customers             10000
+[2026-05-31 18:06:26] INFO     etl.ingest |   orders               100000
+[2026-05-31 18:06:26] INFO     etl.ingest |   order_items          300046
+[2026-05-31 18:06:26] INFO     etl.ingest |   payments             100000
+[2026-05-31 18:06:26] INFO     etl.ingest | ==================================================
+[2026-05-31 18:06:26] INFO     etl.ingest | ETL pipeline finished successfully
