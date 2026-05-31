@@ -1,0 +1,3 @@
+postgres:5432:ecommerce:postgres:postgres
+postgres:5432:airflow_meta:postgres:postgres
+postgres:5432:metabase:postgres:postgres

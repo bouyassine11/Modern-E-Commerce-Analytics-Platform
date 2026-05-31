@@ -1,0 +1,166 @@
+# =============================================================================
+# Modern E-Commerce Analytics Platform — Docker Compose
+# =============================================================================
+# Start:  docker compose up -d
+# Stop:   docker compose down
+# Reset:  docker compose down -v
+# =============================================================================
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: docker/airflow/Dockerfile
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/airflow_meta
+    AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW_FERNET_KEY:-}"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW_CONN_ECOMMERCE_DW: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ecommerce}
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
+    AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+    DBT_PROFILES_DIR: /opt/airflow/dbt/ecommerce
+    POSTGRES_USER: ${POSTGRES_USER:-postgres}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    POSTGRES_DB: ${POSTGRES_DB:-ecommerce}
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./dbt:/opt/airflow/dbt
+    - ./data:/data
+    - ./etl:/opt/airflow/etl
+    - airflow_logs:/opt/airflow/logs
+    - ./scripts:/opt/airflow/scripts
+  networks:
+    - ecommerce-net
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — primary data warehouse + metadata for Airflow & Metabase
+  # ---------------------------------------------------------------------------
+  postgres:
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce}
+    ports:
+      - "${PG_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ecommerce}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ecommerce-net
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Airflow — database initialisation (runs once, then exits)
+  # ---------------------------------------------------------------------------
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db init
+        airflow users create \
+          --username admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com \
+          --password admin \
+          2>/dev/null || true
+    restart: on-failure:3
+
+  # ---------------------------------------------------------------------------
+  # Airflow — web server
+  # ---------------------------------------------------------------------------
+  airflow-webserver:
+    <<: *airflow-common
+    ports:
+      - "${AIRFLOW_PORT:-8080}:8080"
+    command: airflow webserver
+
+  # ---------------------------------------------------------------------------
+  # Airflow — scheduler
+  # ---------------------------------------------------------------------------
+  airflow-scheduler:
+    <<: *airflow-common
+    command: airflow scheduler
+
+  # ---------------------------------------------------------------------------
+  # Metabase — self-service BI
+  # ---------------------------------------------------------------------------
+  metabase:
+    image: metabase/metabase:latest
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase
+      MB_DB_HOST: postgres
+      MB_DB_PORT: 5432
+      MB_DB_USER: ${POSTGRES_USER:-postgres}
+      MB_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      MB_ENCRYPTION_SECRET_KEY: ${MB_ENCRYPTION_KEY:-}
+    ports:
+      - "${METABASE_PORT:-3000}:3000"
+    volumes:
+      - metabase_data:/metabase.db
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - ecommerce-net
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # pgAdmin — database management UI
+  # ---------------------------------------------------------------------------
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@ecommerce.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json:ro
+      - ./docker/pgadmin/pgpass:/pgadmin4/pgpass:ro
+    networks:
+      - ecommerce-net
+    restart: unless-stopped
+    depends_on:
+      - postgres
+
+networks:
+  ecommerce-net:
+    name: ecommerce-net
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: postgres_data
+  airflow_logs:
+    name: airflow_logs
+  metabase_data:
+    name: metabase_data
+  pgadmin_data:
+    name: pgadmin_data

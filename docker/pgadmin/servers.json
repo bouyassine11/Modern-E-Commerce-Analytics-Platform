@@ -1,0 +1,14 @@
+{
+    "Servers": {
+        "1": {
+            "Name": "E-Commerce Analytics (PostgreSQL)",
+            "Group": "Servers",
+            "Host": "postgres",
+            "Port": 5432,
+            "MaintenanceDB": "ecommerce",
+            "Username": "postgres",
+            "PassFile": "/pgadmin4/pgpass",
+            "SSLMode": "prefer"
+        }
+    }
+}
