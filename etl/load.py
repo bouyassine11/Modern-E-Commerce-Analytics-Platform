@@ -1,11 +1,9 @@
 import io
 import logging
 import csv
-from typing import Any
+from typing import Any, Optional
 
 import psycopg2
-
-from etl.utils import get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +72,13 @@ class Loader:
     # Full load orchestration
     # ------------------------------------------------------------------
 
-    def load_all(self, conn: psycopg2.extensions.connection, data: dict[str, list[dict]]) -> dict[str, int]:
+    def load_all(
+        self,
+        conn: psycopg2.extensions.connection,
+        data: dict[str, list[dict]],
+        monitor: Optional[Any] = None,
+        run_id: Optional[int] = None,
+    ) -> dict[str, int]:
         logger.info("=" * 50)
         logger.info("Load phase")
         logger.info("=" * 50)
@@ -86,9 +90,27 @@ class Loader:
 
         for name in load_order:
             raw_table = self._table_map[name]
-            self.truncate_table(conn, raw_table)
-            cnt = self.bulk_insert(conn, raw_table, data[name])
-            counts[name] = cnt
+            task_run_id = None
+            if monitor and run_id:
+                task_run_id = monitor.start_task(
+                    task_name=f"load_{name}",
+                    task_type="load",
+                    records_before=len(data[name]),
+                )
+            try:
+                self.truncate_table(conn, raw_table)
+                cnt = self.bulk_insert(conn, raw_table, data[name])
+                counts[name] = cnt
+                if monitor and task_run_id:
+                    monitor.complete_task(
+                        task_run_id,
+                        rows_processed=cnt,
+                        records_after=cnt,
+                    )
+            except Exception as exc:
+                if monitor and task_run_id:
+                    monitor.fail_task(task_run_id, error_message=str(exc))
+                raise
 
         total = sum(counts.values())
         logger.info("Load complete: %d total rows into %s schema", total, self.schema)

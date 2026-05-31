@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -139,22 +139,44 @@ class Transformer:
     # Orchestration
     # ------------------------------------------------------------------
 
-    def transform_all(self, raw: dict[str, list[dict]]) -> dict[str, list[dict]]:
+    def transform_all(
+        self,
+        raw: dict[str, list[dict]],
+        monitor: Optional[Any] = None,
+        run_id: Optional[int] = None,
+    ) -> dict[str, list[dict]]:
         logger.info("=" * 50)
         logger.info("Transform phase")
         logger.info("=" * 50)
 
-        products = self.transform_products(raw["products"])
-        customers = self.transform_customers(raw["customers"])
+        task_map = {
+            "products": self.transform_products,
+            "customers": self.transform_customers,
+        }
+
+        products = self._transform_table(raw, "products", task_map, monitor, run_id)
+        customers = self._transform_table(raw, "customers", task_map, monitor, run_id)
 
         customer_ids = self._build_set(customers, "customer_id")
-        orders = self.transform_orders(raw["orders"], customer_ids)
+        orders = self._transform_table(
+            raw, "orders", {"orders": lambda d: self.transform_orders(d, customer_ids)},
+            monitor, run_id,
+        )
 
         order_ids = self._build_set(orders, "order_id")
         product_ids = self._build_set(products, "product_id")
-        order_items = self.transform_order_items(raw["order_items"], order_ids, product_ids)
 
-        payments = self.transform_payments(raw["payments"], order_ids)
+        order_items = self._transform_table(
+            raw, "order_items",
+            {"order_items": lambda d: self.transform_order_items(d, order_ids, product_ids)},
+            monitor, run_id,
+        )
+
+        payments = self._transform_table(
+            raw, "payments",
+            {"payments": lambda d: self.transform_payments(d, order_ids)},
+            monitor, run_id,
+        )
 
         result = {
             "products": products,
@@ -173,3 +195,35 @@ class Transformer:
                 logger.info("  %-20s %6d (unchanged)", name, after)
 
         return result
+
+    def _transform_table(
+        self,
+        raw: dict,
+        table_name: str,
+        task_map: dict,
+        monitor: Optional[Any] = None,
+        run_id: Optional[int] = None,
+    ) -> list[dict]:
+        before = len(raw[table_name])
+        task_run_id = None
+        if monitor and run_id:
+            task_run_id = monitor.start_task(
+                task_name=f"transform_{table_name}",
+                task_type="transform",
+                records_before=before,
+            )
+        try:
+            result = task_map[table_name](raw[table_name])
+            after = len(result)
+            if monitor and task_run_id:
+                monitor.complete_task(
+                    task_run_id,
+                    rows_processed=after,
+                    records_after=after,
+                    records_removed=before - after,
+                )
+            return result
+        except Exception as exc:
+            if monitor and task_run_id:
+                monitor.fail_task(task_run_id, error_message=str(exc))
+            raise

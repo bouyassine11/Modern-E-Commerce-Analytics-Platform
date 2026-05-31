@@ -25,12 +25,19 @@ from typing import Any
 from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.bash import BashOperator
-from airflow.operators.empty import EmptyOperator
 from airflow.operators.python import PythonOperator
 
 sys.path.insert(0, "/opt/airflow/etl")
 
+from etl.monitor import PipelineLogger
+
 logger = logging.getLogger("ecommerce_pipeline")
+
+class _DBConfig:
+    @staticmethod
+    def from_config(config_path: str = CONFIG_PATH) -> dict:
+        from etl.config import load_config
+        return load_config(config_path)["database"]
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +89,91 @@ dag = DAG(
 # ---------------------------------------------------------------------------
 
 
+def _start_pipeline_run(**context: Any) -> int:
+    """Create a monitoring.etl_runs entry for this DAG run."""
+    dag_run_id = context["dag_run"].run_id if context.get("dag_run") else None
+    db_config = _DBConfig.from_config(CONFIG_PATH)
+    with PipelineLogger(db_config) as monitor:
+        run_id = monitor.start_run(
+            pipeline_name="airflow_ecommerce_pipeline",
+            dag_run_id=dag_run_id,
+            metadata={"dag_id": "ecommerce_analytics_pipeline"},
+        )
+    context["ti"].xcom_push(key="monitor_run_id", value=run_id)
+    logger.info("Monitoring run %s started for DAG run %s", run_id, dag_run_id)
+    return run_id
+
+
+def _complete_pipeline_run(**context: Any) -> None:
+    """Finalize the monitoring.etl_runs entry."""
+    run_id = context["ti"].xcom_pull(key="monitor_run_id", task_ids="start_pipeline_run")
+    if not run_id:
+        logger.warning("No monitor_run_id found — skipping completion")
+        return
+    db_config = _DBConfig.from_config(CONFIG_PATH)
+    with PipelineLogger(db_config) as monitor:
+        monitor._run_id = run_id
+        monitor.complete_run(status="completed")
+    logger.info("Monitoring run %s completed", run_id)
+
+
+def _log_task_start(task_name: str, task_type: str, **context: Any) -> None:
+    """Push a new task_run_id to XCom for the executing task."""
+    run_id = context["ti"].xcom_pull(key="monitor_run_id", task_ids="start_pipeline_run")
+    if not run_id:
+        return
+    db_config = _DBConfig.from_config(CONFIG_PATH)
+    with PipelineLogger(db_config) as monitor:
+        monitor._run_id = run_id
+        task_run_id = monitor.start_task(task_name=task_name, task_type=task_type)
+    context["ti"].xcom_push(key=f"{task_name}_task_run_id", value=task_run_id)
+
+
+def _log_task_success(task_name: str, task_type: str, rows: int = 0, **context: Any) -> None:
+    run_id = context["ti"].xcom_pull(key="monitor_run_id", task_ids="start_pipeline_run")
+    if not run_id:
+        return
+    task_run_id = context["ti"].xcom_pull(key=f"{task_name}_task_run_id")
+    if not task_run_id:
+        return
+    db_config = _DBConfig.from_config(CONFIG_PATH)
+    with PipelineLogger(db_config) as monitor:
+        monitor._run_id = run_id
+        monitor.complete_task(task_run_id, rows_processed=rows)
+
+
+def _log_task_failure(task_name: str, **context: Any) -> None:
+    run_id = context["ti"].xcom_pull(key="monitor_run_id", task_ids="start_pipeline_run")
+    if not run_id:
+        return
+    task_run_id = context["ti"].xcom_pull(key=f"{task_name}_task_run_id")
+    if not task_run_id:
+        return
+    db_config = _DBConfig.from_config(CONFIG_PATH)
+    with PipelineLogger(db_config) as monitor:
+        monitor._run_id = run_id
+        monitor.fail_task(task_run_id, error_message=str(context.get("exception", "unknown")))
+
+
+def _ingest_dbt_test_results(**context: Any) -> int:
+    """Parse dbt run_results.json and write to monitoring.data_quality_results."""
+    run_id = context["ti"].xcom_pull(key="monitor_run_id", task_ids="start_pipeline_run")
+    if not run_id:
+        logger.warning("No monitor_run_id — skipping dbt results ingestion")
+        return 0
+    results_path = Path(DBT_PROJECT_DIR) / "target" / "run_results.json"
+    if not results_path.exists():
+        logger.warning("run_results.json not found at %s", results_path)
+        return 0
+    db_config = _DBConfig.from_config(CONFIG_PATH)
+    with PipelineLogger(db_config) as monitor:
+        monitor._run_id = run_id
+        count = monitor.ingest_dbt_results(str(results_path))
+    logger.info("Ingested %d dbt test results", count)
+    context["ti"].xcom_push(key="dbt_test_count", value=count)
+    return count
+
+
 def _generate_data(**context: Any) -> dict[str, int]:
     """Generate synthetic e-commerce CSV files."""
     from etl.config import load_config
@@ -130,11 +222,22 @@ def _extract_data(**context: Any) -> dict[str, int]:
 
     config = load_config(CONFIG_PATH)
     extractor = Extractor(config)
+    db_config = config["database"]
+
+    run_id = context["ti"].xcom_pull(key="monitor_run_id", task_ids="start_pipeline_run")
 
     row_counts: dict[str, int] = {}
-    for table_name in extractor.file_map:
-        rows = extractor.extract(table_name)
-        row_counts[table_name] = len(rows)
+    with PipelineLogger(db_config) as monitor:
+        monitor._run_id = run_id
+        for table_name in extractor.file_map:
+            task_run_id = monitor.start_task(f"extract_{table_name}", "extract")
+            try:
+                rows = extractor.extract(table_name)
+                row_counts[table_name] = len(rows)
+                monitor.complete_task(task_run_id, rows_processed=len(rows))
+            except Exception as exc:
+                monitor.fail_task(task_run_id, error_message=str(exc))
+                raise
 
     context["ti"].xcom_push(key="raw_counts", value=row_counts)
     logger.info("Extracted rows: %s", row_counts)
@@ -151,16 +254,37 @@ def _transform_data(**context: Any) -> dict[str, int]:
     config = load_config(CONFIG_PATH)
     extractor = Extractor(config)
     transformer = Transformer(config)
+    db_config = config["database"]
+
+    run_id = context["ti"].xcom_pull(key="monitor_run_id", task_ids="start_pipeline_run")
 
     raw_data = extractor.extract_all()
-    clean_data = transformer.transform_all(raw_data)
+    clean_data = transformer.transform_all(raw_data, monitor=None)
 
     Path(CLEAN_DATA_DIR).mkdir(parents=True, exist_ok=True)
 
     clean_counts: dict[str, int] = {}
-    for name, rows in clean_data.items():
-        write_csv(f"{name}.csv", rows, CLEAN_DATA_DIR)
-        clean_counts[name] = len(rows)
+    with PipelineLogger(db_config) as monitor:
+        monitor._run_id = run_id
+        for name, rows in clean_data.items():
+            before = len(raw_data[name])
+            after = len(rows)
+            task_run_id = monitor.start_task(
+                f"transform_{name}", "transform",
+                records_before=before,
+            )
+            try:
+                write_csv(f"{name}.csv", rows, CLEAN_DATA_DIR)
+                clean_counts[name] = after
+                monitor.complete_task(
+                    task_run_id,
+                    rows_processed=after,
+                    records_after=after,
+                    records_removed=before - after,
+                )
+            except Exception as exc:
+                monitor.fail_task(task_run_id, error_message=str(exc))
+                raise
 
     context["ti"].xcom_push(key="clean_counts", value=clean_counts)
     logger.info("Transformed rows: %s", clean_counts)
@@ -175,6 +299,9 @@ def _load_raw_tables(**context: Any) -> dict[str, int]:
 
     config = load_config(CONFIG_PATH)
     loader = Loader(config)
+    db_config = config["database"]
+
+    run_id = context["ti"].xcom_pull(key="monitor_run_id", task_ids="start_pipeline_run")
 
     clean_data: dict[str, list[dict]] = {}
     for name in ["products", "customers", "orders", "order_items", "payments"]:
@@ -186,9 +313,15 @@ def _load_raw_tables(**context: Any) -> dict[str, int]:
     conn = get_connection(config["database"])
     try:
         with conn:
-            counts = loader.load_all(conn, clean_data)
+            counts = loader.load_all(conn, clean_data, monitor=None)
     finally:
         conn.close()
+
+    with PipelineLogger(db_config) as monitor:
+        monitor._run_id = run_id
+        for name, cnt in counts.items():
+            task_run_id = monitor.start_task(f"load_{name}", "load")
+            monitor.complete_task(task_run_id, rows_processed=cnt, records_after=cnt)
 
     context["ti"].xcom_push(key="load_counts", value=counts)
     logger.info("Loaded rows: %s", counts)
@@ -303,16 +436,39 @@ def _generate_kpi_report(**context: Any) -> dict[str, Any]:
     logger.info("Last 7d:    %s", kpis.get("last_7_days"))
     logger.info("=" * 60)
 
+    # Snapshot KPIs into monitoring run metadata
+    run_id = context["ti"].xcom_pull(key="monitor_run_id", task_ids="start_pipeline_run")
+    if run_id:
+        db_config = _DBConfig.from_config(CONFIG_PATH)
+        with PipelineLogger(db_config) as monitor:
+            monitor._run_id = run_id
+            monitor.snapshot_kpis(kpis)
+
     context["ti"].xcom_push(key="kpi_report", value=kpis)
     return kpis
 
 
 # ---------------------------------------------------------------------------
-# DAG start / end markers
+# Monitoring tasks — pipeline lifecycle
 # ---------------------------------------------------------------------------
 
-start = EmptyOperator(task_id="start", dag=dag)
-end = EmptyOperator(task_id="end", dag=dag)
+start_pipeline_run = PythonOperator(
+    task_id="start_pipeline_run",
+    python_callable=_start_pipeline_run,
+    dag=dag,
+)
+
+ingest_dbt_test_results = PythonOperator(
+    task_id="ingest_dbt_test_results",
+    python_callable=_ingest_dbt_test_results,
+    dag=dag,
+)
+
+complete_pipeline_run = PythonOperator(
+    task_id="complete_pipeline_run",
+    python_callable=_complete_pipeline_run,
+    dag=dag,
+)
 
 # ---------------------------------------------------------------------------
 # Data pipeline tasks
@@ -410,10 +566,11 @@ generate_kpi_report = PythonOperator(
 # Task dependencies
 # ---------------------------------------------------------------------------
 
-start >> generate_data >> extract_data >> transform_data >> load_raw_tables
+start_pipeline_run >> generate_data >> extract_data >> transform_data >> load_raw_tables
 
-load_raw_tables >> dbt_run >> dbt_test
+load_raw_tables >> dbt_run >> dbt_test >> ingest_dbt_test_results
+
 if DBT_SEED_ENABLED:
     dbt_seed >> dbt_run
 
-dbt_test >> refresh_metabase >> generate_kpi_report >> end
+ingest_dbt_test_results >> refresh_metabase >> generate_kpi_report >> complete_pipeline_run
